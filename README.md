@@ -8,7 +8,7 @@ Source-oriented OSINT framework для автоматизованого збор
 osint-pipeline/
 │
 ├── .env
-├── .env.example
+├── .gitignore
 ├── config.py
 ├── pipeline.py
 │
@@ -172,15 +172,17 @@ def get_sources():
     ]
 ```
 
-## Recon-ng Source
+### `sources/recon_ng/`
 
-### `sources/recon_ng/source.py`
+Recon-ng оформлюється як окремий source.
+
+#### `source.py`
 
 Містить `ReconNGSource`, який реалізує:
 - `supports(target)`
 - `collect(target)`
 
-### `sources/recon_ng/runner.py`
+#### `runner.py`
 
 Відповідає за запуск `recon-ng` через subprocess:
 - формує команду
@@ -188,7 +190,7 @@ def get_sources():
 - читає stdout / stderr
 - повертає сирий результат
 
-### `sources/recon_ng/plans.py`
+#### `plans.py`
 
 Містить мапу:
 - `domain` → список recon-ng модулів
@@ -214,20 +216,20 @@ RECON_PLANS = {
 }
 ```
 
-### `sources/recon_ng/parser.py`
+#### `parser.py`
 
 Відповідає за:
 - парсинг output від recon-ng
 - нормалізацію результатів
 - приведення даних до єдиного формату `SourceResult`
 
-## Shodan Source
+### `sources/shodan/`
 
-### `sources/shodan/source.py`
+#### `source.py`
 
 Містить `ShodanSource`, який працює через API і повертає `SourceResult`.
 
-### `sources/shodan/client.py`
+#### `client.py`
 
 Інкапсулює роботу з Shodan API:
 - host lookup
@@ -236,13 +238,13 @@ RECON_PLANS = {
 - відкриті порти
 - додаткові host metadata
 
-## theHarvester Source
+### `sources/theharvester/`
 
-### `sources/theharvester/source.py`
+#### `source.py`
 
 Містить `TheHarvesterSource`.
 
-### `sources/theharvester/runner.py`
+#### `runner.py`
 
 Відповідає за виклик CLI, збір stdout/stderr і підготовку результату.
 
@@ -291,11 +293,14 @@ def run_pipeline(target):
 - базові налаштування pipeline
 - output paths
 
-### `.env.example`
+### `.env`
 
 ```env
 # Targets
 TARGETS=example.com,john@example.com,+380991234567,8.8.8.8
+
+# Sources
+ENABLED_SOURCES=recon_ng,shodan,theharvester
 
 # Output
 OUTPUT_DIR=./reports
@@ -350,7 +355,6 @@ reports/
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env
 python pipeline.py
 ```
 
@@ -397,4 +401,4 @@ python pipeline.py --target john@example.com
 - усі результати зводяться в єдиний формат
 - збереження і звіти відокремлені від логіки збору
 
-Це дає чисту базу для росту від одного `Recon-ng` до повноцінного набору OSINT integrations.
+Це дає чисту базу для росту від одного `ReconNGSource` до повноцінного набору OSINT integrations.
