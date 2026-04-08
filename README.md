@@ -1,3 +1,40 @@
+
+```
+osint-pipeline/
+│
+├── .env                        # Твої реальні дані (не комітити!)
+├── .env.example                # Шаблон конфігурації
+├── config.py                   # Завантаження .env, парсинг, валідація таргетів
+├── pipeline.py                 # 🚀 Точка входу — оркеструє весь pipeline
+│
+├── modules/
+│   ├── __init__.py
+│   ├── base.py                 # Абстрактний базовий клас для всіх модулів
+│   ├── domains.py              # Домени → субдомени, DNS, cert transparency
+│   ├── emails.py               # Emails → harvesting, HIBP
+│   ├── phones.py               # Телефони → lookup
+│   └── ips.py                  # IP → Shodan, геолокація, reverse DNS
+│
+├── runners/
+│   ├── __init__.py
+│   └── recon_ng.py             # Subprocess runner для recon-ng
+│
+├── storage/
+│   ├── __init__.py
+│   └── db.py                   # SQLite — зберігає всі результати
+│
+└── reports/                    # Авто-генерується після запуску
+    ├── <target>_<date>.json
+    └── <target>_<date>.txt
+```
+
+Зроблено поки що:
+- ✅ `.env.example`
+- ✅ `config.py`
+
+Наступний крок — `modules/base.py`?
+
+
 # 🔍 OSINT Pipeline — Recon-ng Automation Layer
 
 Автоматизований OSINT pipeline поверх [Recon-ng](https://github.com/lanmaster53/recon-ng).
