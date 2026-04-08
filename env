@@ -1,0 +1,27 @@
+# OSINT Pipeline — local environment
+# Fill only what you use. Keep this file out of git.
+
+# Comma-separated targets. Types are auto-detected in config.py.
+# Supported: domain, email, phone (E.164), ip
+TARGETS=example.com,john@example.com,+380991234567,8.8.8.8
+
+# Output / storage
+OUTPUT_DIR=./reports
+DB_PATH=./storage/osint.db
+
+# Logging
+LOG_LEVEL=INFO
+MODULE_TIMEOUT=60
+
+# Optional source toggles
+ENABLED_SOURCES=recon_ng,shodan,theharvester
+
+# Recon-ng
+RECON_NG_PATH=/usr/local/bin/recon-ng
+RECON_WORKSPACE=osint_workspace
+
+# API keys
+SHODAN_API_KEY=
+HIBP_API_KEY=
+HUNTER_API_KEY=
+VIRUSTOTAL_API_KEY=

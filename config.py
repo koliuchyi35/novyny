@@ -1,237 +1,232 @@
-# osint-pipeline/config.py
+"""Configuration loader for the source-oriented OSINT pipeline.
 
-"""
-config.py — Завантаження конфігурації та валідація таргетів
-
-Відповідає за:
-- Завантаження .env
-- Парсинг таргетів (списки через кому)
-- Валідацію кожного таргету по типу
-- Завантаження API ключів та налаштувань
+Responsibilities:
+- load .env
+- parse and validate targets from a single TARGETS variable
+- expose API keys and runtime settings
+- keep source toggles in one place
 """
 
+from __future__ import annotations
+
+import ipaddress
+import logging
 import os
 import re
-import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from pathlib import Path
+from typing import Iterable
+
 from dotenv import load_dotenv
 
-# ── Завантаження .env ────────────────────────────────────────────
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-
-# ╔══════════════════════════════════════════════════════════════╗
-# ║                     REGEX ПАТЕРНИ                           ║
-# ╚══════════════════════════════════════════════════════════════╝
-
-PATTERNS = {
-    "domain": re.compile(
-        r"^(?!-)[A-Za-z0-9\-]{1,63}(?<!-)"
-        r"(\.[A-Za-z0-9\-]{1,63})*"
-        r"\.[A-Za-z]{2,}$"
-    ),
-    "email": re.compile(
-        r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$"
-    ),
-    "ipv4": re.compile(
-        r"^(\d{1,3}\.){3}\d{1,3}$"
-    ),
-    "ipv6": re.compile(
-        r"^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$"
-    ),
-    "phone": re.compile(
-        r"^\+[1-9]\d{6,14}$"
-    ),
-}
+_DOMAIN_RE = re.compile(
+    r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+?$"
+)
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+_PHONE_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
-# ╔══════════════════════════════════════════════════════════════╗
-# ║                     ДАТАКЛАСИ                               ║
-# ╚══════════════════════════════════════════════════════════════╝
-
-@dataclass
-class Targets:
-    """Розпарсені та валідовані таргети по типах."""
-    domains: list[str] = field(default_factory=list)
-    emails:  list[str] = field(default_factory=list)
-    ips:     list[str] = field(default_factory=list)
-    phones:  list[str] = field(default_factory=list)
-
-    def is_empty(self) -> bool:
-        return not any([self.domains, self.emails, self.ips, self.phones])
-
-    def summary(self) -> str:
-        lines = []
-        if self.domains: lines.append(f"  Domains  ({len(self.domains)}): {', '.join(self.domains)}")
-        if self.emails:  lines.append(f"  Emails   ({len(self.emails)}):  {', '.join(self.emails)}")
-        if self.ips:     lines.append(f"  IPs      ({len(self.ips)}):     {', '.join(self.ips)}")
-        if self.phones:  lines.append(f"  Phones   ({len(self.phones)}):  {', '.join(self.phones)}")
-        return "\n".join(lines) if lines else "  (порожньо)"
+@dataclass(frozen=True)
+class Target:
+    value: str
+    type: str  # domain | email | phone | ip
 
 
-@dataclass
+@dataclass(frozen=True)
 class ApiKeys:
-    """API ключі для зовнішніх сервісів."""
-    shodan:      Optional[str] = None
-    hibp:        Optional[str] = None
-    hunter:      Optional[str] = None
-    virustotal:  Optional[str] = None
+    shodan: str | None = None
+    hibp: str | None = None
+    hunter: str | None = None
+    virustotal: str | None = None
 
     def available(self) -> list[str]:
-        """Повертає список сервісів де є ключ."""
-        result = []
-        if self.shodan:     result.append("Shodan")
-        if self.hibp:       result.append("HIBP")
-        if self.hunter:     result.append("Hunter.io")
-        if self.virustotal: result.append("VirusTotal")
+        result: list[str] = []
+        if self.shodan:
+            result.append("shodan")
+        if self.hibp:
+            result.append("hibp")
+        if self.hunter:
+            result.append("hunter")
+        if self.virustotal:
+            result.append("virustotal")
         return result
 
 
-@dataclass
-class Settings:
-    """Загальні налаштування pipeline."""
-    recon_ng_path:  str = "/usr/local/bin/recon-ng"
-    workspace:      str = "osint_workspace"
-    output_dir:     str = "./reports"
-    log_level:      str = "INFO"
+@dataclass(frozen=True)
+class SourceSettings:
+    enabled_sources: tuple[str, ...] = ("recon_ng",)
+    recon_ng_path: str = "/usr/local/bin/recon-ng"
+    recon_workspace: str = "osint_workspace"
+
+
+@dataclass(frozen=True)
+class RuntimeSettings:
+    output_dir: Path = Path("./reports")
+    db_path: Path = Path("./storage/osint.db")
+    log_level: str = "INFO"
     module_timeout: int = 60
 
 
-@dataclass
+@dataclass(frozen=True)
 class Config:
-    """Головний конфіг — агрегує всі секції."""
-    targets:  Targets
+    targets: tuple[Target, ...]
     api_keys: ApiKeys
-    settings: Settings
+    sources: SourceSettings
+    runtime: RuntimeSettings
+
+    def has_source(self, source_name: str) -> bool:
+        return source_name in self.sources.enabled_sources
 
 
-# ╔══════════════════════════════════════════════════════════════╗
-# ║                     ВАЛІДАТОРИ                              ║
-# ╚══════════════════════════════════════════════════════════════╝
-
-def _is_valid_ipv4(ip: str) -> bool:
-    """Перевіряє IPv4 включно з діапазоном октетів (0-255)."""
-    if not PATTERNS["ipv4"].match(ip):
-        return False
-    return all(0 <= int(octet) <= 255 for octet in ip.split("."))
+class ConfigError(ValueError):
+    """Raised when environment configuration is invalid."""
 
 
-def _is_valid_ipv6(ip: str) -> bool:
-    return bool(PATTERNS["ipv6"].match(ip))
-
-
-def _validate_domain(value: str) -> bool:
-    return bool(PATTERNS["domain"].match(value))
-
-
-def _validate_email(value: str) -> bool:
-    return bool(PATTERNS["email"].match(value))
-
-
-def _validate_ip(value: str) -> bool:
-    return _is_valid_ipv4(value) or _is_valid_ipv6(value)
-
-
-def _validate_phone(value: str) -> bool:
-    """Телефон має бути в міжнародному форматі: +380991234567."""
-    return bool(PATTERNS["phone"].match(value))
-
-
-# ╔══════════════════════════════════════════════════════════════╗
-# ║                     ПАРСЕРИ                                 ║
-# ╚══════════════════════════════════════════════════════════════╝
-
-def _parse_list(env_key: str) -> list[str]:
-    """
-    Зчитує рядок з .env і повертає список очищених непорожніх значень.
-
-    TARGET_DOMAINS=example.com, test.com  →  ['example.com', 'test.com']
-    """
-    raw = os.getenv(env_key, "")
-    if not raw.strip():
+def _split_csv(value: str | None) -> list[str]:
+    if not value:
         return []
-    return [item.strip() for item in raw.split(",") if item.strip()]
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _parse_and_validate(
-    env_key: str,
-    validator: callable,
-    label: str,
-) -> list[str]:
-    """
-    Парсить список з .env і валідує кожен елемент.
-    Невалідні елементи логуються і пропускаються.
-    """
-    items = _parse_list(env_key)
-    valid = []
-
-    for item in items:
-        if validator(item):
-            valid.append(item)
-        else:
-            logger.warning(f"[config] Невалідний {label}: '{item}' — пропущено")
-
-    return valid
+def _is_domain(value: str) -> bool:
+    return bool(_DOMAIN_RE.fullmatch(value))
 
 
-# ╔══════════════════════════════════════════════════════════════╗
-# ║                    ГОЛОВНА ФУНКЦІЯ                          ║
-# ╚══════════════════════════════════════════════════════════════╝
+def _is_email(value: str) -> bool:
+    return bool(_EMAIL_RE.fullmatch(value))
+
+
+def _is_phone(value: str) -> bool:
+    return bool(_PHONE_RE.fullmatch(value))
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def detect_target_type(value: str) -> str:
+    if _is_email(value):
+        return "email"
+    if _is_ip(value):
+        return "ip"
+    if _is_phone(value):
+        return "phone"
+    if _is_domain(value):
+        return "domain"
+    raise ConfigError(f"Unsupported target format: {value}")
+
+
+def parse_targets(raw_targets: Iterable[str]) -> tuple[Target, ...]:
+    parsed: list[Target] = []
+    seen: set[tuple[str, str]] = set()
+
+    for raw in raw_targets:
+        value = raw.strip()
+        if not value:
+            continue
+
+        target_type = detect_target_type(value)
+        key = (target_type, value)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        parsed.append(Target(value=value, type=target_type))
+
+    if not parsed:
+        raise ConfigError("TARGETS is empty. Add at least one domain, email, phone, or IP.")
+
+    return tuple(parsed)
+
+
+def _get_env(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name, default)
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _load_api_keys() -> ApiKeys:
+    return ApiKeys(
+        shodan=_get_env("SHODAN_API_KEY"),
+        hibp=_get_env("HIBP_API_KEY"),
+        hunter=_get_env("HUNTER_API_KEY"),
+        virustotal=_get_env("VIRUSTOTAL_API_KEY"),
+    )
+
+
+def _load_sources() -> SourceSettings:
+    enabled = tuple(_split_csv(os.getenv("ENABLED_SOURCES", "recon_ng")))
+    if not enabled:
+        raise ConfigError("ENABLED_SOURCES is empty. Enable at least one source.")
+
+    return SourceSettings(
+        enabled_sources=enabled,
+        recon_ng_path=os.getenv("RECON_NG_PATH", "/usr/local/bin/recon-ng").strip(),
+        recon_workspace=os.getenv("RECON_WORKSPACE", "osint_workspace").strip(),
+    )
+
+
+def _load_runtime() -> RuntimeSettings:
+    log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+    if log_level not in _VALID_LOG_LEVELS:
+        raise ConfigError(f"Invalid LOG_LEVEL: {log_level}")
+
+    module_timeout_raw = os.getenv("MODULE_TIMEOUT", "60").strip()
+    try:
+        module_timeout = int(module_timeout_raw)
+    except ValueError as exc:
+        raise ConfigError("MODULE_TIMEOUT must be an integer") from exc
+
+    if module_timeout <= 0:
+        raise ConfigError("MODULE_TIMEOUT must be greater than 0")
+
+    return RuntimeSettings(
+        output_dir=Path(os.getenv("OUTPUT_DIR", "./reports")).expanduser(),
+        db_path=Path(os.getenv("DB_PATH", "./storage/osint.db")).expanduser(),
+        log_level=log_level,
+        module_timeout=module_timeout,
+    )
+
 
 def load_config() -> Config:
-    """
-    Завантажує, парсить і валідує всю конфігурацію з .env.
+    targets = parse_targets(_split_csv(os.getenv("TARGETS")))
+    api_keys = _load_api_keys()
+    sources = _load_sources()
+    runtime = _load_runtime()
 
-    Returns:
-        Config — повністю заповнений конфіг-об'єкт
-
-    Raises:
-        ValueError — якщо не задано жодного таргету
-    """
-
-    # ── Таргети ──────────────────────────────────────────────────
-    targets = Targets(
-        domains=_parse_and_validate("TARGET_DOMAINS", _validate_domain, "domain"),
-        emails= _parse_and_validate("TARGET_EMAILS",  _validate_email,  "email"),
-        ips=    _parse_and_validate("TARGET_IPS",     _validate_ip,     "IP"),
-        phones= _parse_and_validate("TARGET_PHONES",  _validate_phone,  "phone"),
+    config = Config(
+        targets=targets,
+        api_keys=api_keys,
+        sources=sources,
+        runtime=runtime,
     )
 
-    if targets.is_empty():
-        raise ValueError(
-            "Не задано жодного таргету. "
-            "Заповни TARGET_DOMAINS / TARGET_EMAILS / TARGET_IPS / TARGET_PHONES у .env"
-        )
-
-    # ── API ключі ─────────────────────────────────────────────────
-    api_keys = ApiKeys(
-        shodan=     os.getenv("SHODAN_API_KEY")     or None,
-        hibp=       os.getenv("HIBP_API_KEY")       or None,
-        hunter=     os.getenv("HUNTER_API_KEY")     or None,
-        virustotal= os.getenv("VIRUSTOTAL_API_KEY") or None,
-    )
-
-    # ── Налаштування ──────────────────────────────────────────────
-    settings = Settings(
-        recon_ng_path=  os.getenv("RECON_NG_PATH",   "/usr/local/bin/recon-ng"),
-        workspace=      os.getenv("WORKSPACE",        "osint_workspace"),
-        output_dir=     os.getenv("OUTPUT_DIR",       "./reports"),
-        log_level=      os.getenv("LOG_LEVEL",        "INFO").upper(),
-        module_timeout= int(os.getenv("MODULE_TIMEOUT", "60")),
-    )
-
-    config = Config(targets=targets, api_keys=api_keys, settings=settings)
-
-    # ── Лог підсумку ──────────────────────────────────────────────
-    logger.info("─" * 50)
-    logger.info("✅ Конфіг завантажено")
-    logger.info(f"Таргети:\n{targets.summary()}")
-    logger.info(f"API доступні: {', '.join(api_keys.available()) or 'жодного'}")
-    logger.info(f"Workspace: {settings.workspace}")
-    logger.info("─" * 50)
-
+    logger.info("Config loaded: %d target(s), sources=%s, api_keys=%s",
+                len(config.targets),
+                ",".join(config.sources.enabled_sources),
+                ",".join(config.api_keys.available()) or "none")
     return config
 
+
+__all__ = [
+    "ApiKeys",
+    "Config",
+    "ConfigError",
+    "RuntimeSettings",
+    "SourceSettings",
+    "Target",
+    "detect_target_type",
+    "load_config",
+    "parse_targets",
+]
